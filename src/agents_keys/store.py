@@ -74,10 +74,16 @@ def _b58_decode(base58: str) -> bytes:
     return b"\x00" * pad + bytes(reversed(digits))
 
 
+def _trim_trailing_crlf(data: bytes) -> bytes:
+    while data.endswith((b"\n", b"\r")):
+        data = data[:-1]
+    return data
+
+
 def signing_key_from_file(path: Path | str) -> SigningKey:
     raw = Path(path).read_bytes()
-    if raw.endswith(b"\n") or raw.endswith(b"\r"):
-        raw = raw.strip()
+    if raw.endswith((b"\n", b"\r")):
+        raw = _trim_trailing_crlf(raw)
     if len(raw) == 64:
         return SigningKey(raw[:32])
     if len(raw) == 32:

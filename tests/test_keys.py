@@ -61,6 +61,19 @@ class TestStore(unittest.TestCase):
         loaded = signing_key_from_file(path)
         self.assertEqual(did_key_from_signing_key(loaded), GOLDEN_DID)
 
+    def test_load_64_byte_secret_with_trailing_crlf(self):
+        key = SigningKey.generate()
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = Path(tmp.name) / "probe.ed25519"
+        blob = sodium_secret_bytes(key)
+        while blob[-1] in (0x0A, 0x0D):
+            key = SigningKey.generate()
+            blob = sodium_secret_bytes(key)
+        path.write_bytes(blob + b"\r\n")
+        loaded = signing_key_from_file(path)
+        self.assertEqual(did_key_from_signing_key(loaded), did_key_from_signing_key(key))
+
     def test_mint_refuses_overwrite(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
