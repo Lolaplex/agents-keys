@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agents-keys"
+version = "0.1.0"
+description = "Mint and sign agent Ed25519 keys (did:key). CLI only; no MCP."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+dependencies = ["pynacl>=1.5,<2"]
+
+[project.scripts]
+agents-keys = "agents_keys.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
