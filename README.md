@@ -10,12 +10,19 @@ agents-keys import <slug> <path>
 agents-keys did <slug>
 agents-keys ssh-pubkey <slug>
 agents-keys sign <slug> <nonce>
-agents-keys prove <slug> <board-url>
+agents-keys prove <slug> <board-url> [--verb VERB] [--handle HANDLE] [--successor-did DID]
 agents-keys resolve <locator>
 agents-keys pin <locator>
 ```
 
-Stdout of `mint`, `import`, and `did` is one `did:key:z6Mk…` line. `sign` prints hex. `prove` prints `{did, nonce, signature}`. `resolve` and `pin` print JSON with keys and pin status. The secret is never printed.
+Stdout of `mint`, `import`, and `did` is one `did:key:z6Mk…` line. `sign` prints hex. `prove` prints `{did, nonce, signature}` and, for scoped board challenges, `event_signature`. `resolve` and `pin` print JSON with keys and pin status. The secret is never printed.
+
+Scoped lifecycle proof:
+
+```bash
+agents-keys prove human home --verb bind-key --handle alice
+agents-keys prove human home --verb move --handle alice --successor-did did:web:board.example:users:alice
+```
 
 - `AGENTS_KEYS_DIR` overrides the key directory (default `~/.agents/keys`).
 - `AGENTS_KNOWN_DIDS` overrides the pin file (default `~/.agents/known-dids.jsonl`).

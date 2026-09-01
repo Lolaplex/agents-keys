@@ -4,11 +4,20 @@ from __future__ import annotations
 import json
 import urllib.error
 import urllib.request
+from typing import Any
 
 
-def fetch_challenge(board_url: str, did: str, timeout: float = 8.0) -> str:
+def fetch_challenge(
+    board_url: str,
+    did: str,
+    scope: dict[str, str] | None = None,
+    timeout: float = 8.0,
+) -> dict[str, Any]:
     origin = board_url.rstrip("/")
-    payload = json.dumps({"verb": "challenge", "did": did}, separators=(",", ":")).encode("utf-8")
+    body: dict[str, Any] = {"verb": "challenge", "did": did}
+    if scope:
+        body["scope"] = scope
+    payload = json.dumps(body, separators=(",", ":")).encode("utf-8")
     req = urllib.request.Request(
         origin + "/login",
         data=payload,
@@ -26,8 +35,8 @@ def fetch_challenge(board_url: str, did: str, timeout: float = 8.0) -> str:
         raise RuntimeError(f"challenge failed: {raw}") from e
     except urllib.error.URLError as e:
         raise RuntimeError(f"challenge failed: {e}") from e
-    body = json.loads(raw) if raw else {}
-    nonce = str(body.get("nonce") or "")
+    parsed = json.loads(raw) if raw else {}
+    nonce = str(parsed.get("nonce") or "")
     if nonce == "":
         raise RuntimeError(f"challenge failed: {raw}")
-    return nonce
+    return parsed

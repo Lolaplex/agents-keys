@@ -40,8 +40,8 @@ def help_json() -> dict:
                 "description": "Ed25519 signature hex over the nonce.",
             },
             "prove": {
-                "usage": "agents-keys prove <slug> <board-url>",
-                "description": "Challenge the board and print {did, nonce, signature}.",
+                "usage": "agents-keys prove <slug> <board-url> [--verb VERB] [--handle HANDLE] [--successor-did DID]",
+                "description": "Challenge the board and print {did, nonce, signature, event_signature?}.",
             },
             "resolve": {
                 "usage": "agents-keys resolve <locator>",
@@ -79,6 +79,9 @@ def build_parser() -> argparse.ArgumentParser:
     prove_p = sub.add_parser("prove", help="Board challenge + signature JSON")
     prove_p.add_argument("slug")
     prove_p.add_argument("board_url")
+    prove_p.add_argument("--verb", default="")
+    prove_p.add_argument("--handle", default="")
+    prove_p.add_argument("--successor-did", default="")
     resolve_p = sub.add_parser("resolve", help="Resolve locator to did:key JSON")
     resolve_p.add_argument("locator")
     pin_p = sub.add_parser("pin", help="Resolve and pin did:key (TOFU)")
@@ -123,8 +126,24 @@ def main(argv: list[str] | None = None) -> int:
                 print("prove needs a board URL (https://…)", file=sys.stderr)
                 return 2
             key, did, _path = load(args.slug)
-            nonce = fetch_challenge(board, did)
-            print(json.dumps({"did": did, "nonce": nonce, "signature": sign_hex(key, nonce)}, separators=(",", ":")))
+            scope: dict[str, str] = {}
+            if args.verb:
+                scope["verb"] = args.verb
+            if args.handle:
+                scope["handle"] = args.handle
+            if args.successor_did:
+                scope["successor_did"] = args.successor_did
+            challenge = fetch_challenge(board, did, scope or None)
+            nonce = str(challenge["nonce"])
+            out: dict[str, str] = {
+                "did": did,
+                "nonce": nonce,
+                "signature": sign_hex(key, nonce),
+            }
+            event_canonical = challenge.get("event_canonical")
+            if isinstance(event_canonical, str) and event_canonical:
+                out["event_signature"] = sign_hex(key, event_canonical)
+            print(json.dumps(out, separators=(",", ":")))
             return 0
         if args.command == "resolve":
             result = resolve_locator(args.locator, pin=False)

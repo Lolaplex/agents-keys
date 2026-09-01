@@ -199,7 +199,7 @@ class TestCli(unittest.TestCase):
             minted = mint("prove-bot")
             out = io.StringIO()
             err = io.StringIO()
-            with patch("agents_keys.cli.fetch_challenge", return_value="board-login:n"):
+            with patch("agents_keys.cli.fetch_challenge", return_value={"nonce": "board-login:n"}):
                 with redirect_stdout(out), redirect_stderr(err):
                     rc = main(["prove", "prove-bot", "https://board.example"])
             self.assertEqual(rc, 0, err.getvalue())
