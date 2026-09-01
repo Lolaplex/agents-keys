@@ -50,6 +50,30 @@ def _b58_encode(data: bytes) -> str:
     return ("1" * pad) + "".join(_B58[d] for d in reversed(digits))
 
 
+def _b58_decode(base58: str) -> bytes:
+    if base58 == "":
+        return b""
+    map_ = {c: i for i, c in enumerate(_B58)}
+    digits = [0]
+    for char in base58:
+        if char not in map_:
+            raise ValueError("invalid base58 character")
+        carry = map_[char]
+        for i, d in enumerate(digits):
+            carry += d * 58
+            digits[i] = carry % 256
+            carry //= 256
+        while carry:
+            digits.append(carry % 256)
+            carry //= 256
+    pad = 0
+    for char in base58:
+        if char != "1":
+            break
+        pad += 1
+    return b"\x00" * pad + bytes(reversed(digits))
+
+
 def signing_key_from_file(path: Path | str) -> SigningKey:
     raw = Path(path).read_bytes()
     if raw.endswith(b"\n") or raw.endswith(b"\r"):

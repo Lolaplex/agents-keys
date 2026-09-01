@@ -14,7 +14,11 @@ from unittest.mock import patch
 
 from nacl.signing import SigningKey
 
+from agents_keys.pins import PinMismatchError, load_pins, pin_locator, pins_path
+from agents_keys.resolve import extract_ed25519_dids, resolve_locator
+from agents_keys.ssh import ssh_ed25519_pubkey_line
 from agents_keys.store import (
+    _b58_encode,
     did_key_from_signing_key,
     load,
     mint,
@@ -30,17 +34,26 @@ GOLDEN_SIG = (
     "b19584f1413e30cc6e573c3f98346dd9be319400f57d49be6f24a57f1b7fdacc"
     "840bdf957acf61ddde57fb80875e87d0be430ab3ef47d69907a2d4c5514ed00e"
 )
+GOLDEN_SSH = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINBKsjJ0K7SrOhNovUYV5ObQIkq3GgFrr4UgozLJd4c3 agents-keys"
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _golden_key() -> SigningKey:
+    return SigningKey(bytes.fromhex(GOLDEN_SEED))
 
 
 class TestStore(unittest.TestCase):
     def test_golden_did_and_signature(self):
-        key = SigningKey(bytes.fromhex(GOLDEN_SEED))
+        key = _golden_key()
         self.assertEqual(did_key_from_signing_key(key), GOLDEN_DID)
         self.assertEqual(sign_hex(key, GOLDEN_MESSAGE), GOLDEN_SIG)
 
+    def test_golden_ssh_pubkey_line(self):
+        line = ssh_ed25519_pubkey_line(_golden_key(), comment="agents-keys")
+        self.assertEqual(line, GOLDEN_SSH)
+
     def test_load_64_byte_sodium_secret(self):
-        key = SigningKey(bytes.fromhex(GOLDEN_SEED))
+        key = _golden_key()
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         path = Path(tmp.name) / "probe.ed25519"
@@ -57,6 +70,60 @@ class TestStore(unittest.TestCase):
             self.assertEqual(load("probe")[1], first["did"])
             with self.assertRaises(FileExistsError):
                 mint("probe")
+
+
+class TestResolve(unittest.TestCase):
+    def test_extract_ed25519_from_doc(self):
+        pub = bytes(_golden_key().verify_key)
+        prefixed = b"\xed\x01" + pub
+        mb = "z" + _b58_encode(prefixed)
+        doc = {
+            "id": "did:web:corp.example",
+            "alsoKnownAs": ["mailto:alice@corp.example", GOLDEN_DID],
+            "verificationMethod": [
+                {
+                    "id": "did:web:corp.example#key-1",
+                    "type": "Ed25519VerificationKey2020",
+                    "controller": "did:web:corp.example",
+                    "publicKeyMultibase": mb,
+                }
+            ],
+        }
+        keys = extract_ed25519_dids(doc)
+        self.assertIn(GOLDEN_DID, keys)
+
+    def test_resolve_mailto_mocked(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        pub = bytes(_golden_key().verify_key)
+        mb = "z" + _b58_encode(b"\xed\x01" + pub)
+        doc = {
+            "id": "did:web:corp.example",
+            "alsoKnownAs": ["mailto:alice@corp.example"],
+            "verificationMethod": [{"publicKeyMultibase": mb, "type": "Ed25519VerificationKey2020"}],
+        }
+
+        def fake_get(url: str) -> str:
+            self.assertIn("corp.example", url)
+            return json.dumps(doc)
+
+        with patch.dict(os.environ, {"AGENTS_KNOWN_DIDS": str(Path(tmp.name) / "pins.jsonl")}):
+            with patch("agents_keys.resolve._fetch_json", return_value=doc):
+                result = resolve_locator("mailto:alice@corp.example")
+        self.assertEqual(result.did, GOLDEN_DID)
+        self.assertTrue(result.match)
+
+
+class TestPins(unittest.TestCase):
+    def test_pin_tofu_then_mismatch(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        pin_file = Path(tmp.name) / "pins.jsonl"
+        with patch.dict(os.environ, {"AGENTS_KNOWN_DIDS": str(pin_file)}):
+            pin_locator(GOLDEN_DID, ["mailto:alice@corp.example"])
+            self.assertEqual(len(load_pins()), 1)
+            with self.assertRaises(PinMismatchError):
+                pin_locator("did:key:z6MkOTHEROTHEROTHEROTHEROTHEROTHEROTHEROTHEROTHEROt", ["mailto:alice@corp.example"])
 
 
 class TestCli(unittest.TestCase):
@@ -79,7 +146,8 @@ class TestCli(unittest.TestCase):
         data = json.loads(proc.stdout)
         self.assertEqual(data["name"], "agents-keys")
         self.assertIn("mint", data["commands"])
-        self.assertIn("prove", data["commands"])
+        self.assertIn("pin", data["commands"])
+        self.assertIn("resolve", data["commands"])
 
     def test_mint_did_sign_roundtrip(self):
         tmp = tempfile.TemporaryDirectory()
@@ -99,6 +167,15 @@ class TestCli(unittest.TestCase):
         with patch.dict(os.environ, {"AGENTS_KEYS_DIR": tmp.name}):
             key, _, _ = load("cli-bot")
             self.assertEqual(signed.stdout.strip(), sign_hex(key, nonce))
+
+    def test_ssh_pubkey_command(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        env = {"AGENTS_KEYS_DIR": tmp.name}
+        self._run("mint", "ssh-bot", env=env)
+        proc = self._run("ssh-pubkey", "ssh-bot", env=env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertTrue(proc.stdout.strip().startswith("ssh-ed25519 "))
 
     def test_prove_prints_json(self):
         from agents_keys.cli import main

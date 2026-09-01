@@ -7,11 +7,15 @@ Ed25519 agent keys as a file on the host. CLI only (`python -m agents_keys`). No
 ```bash
 python -m agents_keys --help-json
 python -m agents_keys mint <slug>
+python -m agents_keys import <slug> <path>
 python -m agents_keys did <slug>
+python -m agents_keys ssh-pubkey <slug>
 python -m agents_keys sign <slug> <nonce>
 python -m agents_keys prove <slug> https://board.example
+python -m agents_keys resolve <locator>
+python -m agents_keys pin <locator>
 ```
 
-Done when `mint` stdout is one `did:key:z6Mk…` line and `did` prints the same line. Secret: `~/.agents/keys/<slug>.ed25519` (64-byte libsodium secret, mode 0600). Never print, paste, or store that file in chat, traces, or markdown memory.
+Done when `mint` stdout is one `did:key:z6Mk…` line and `did` prints the same line. Secret: `~/.agents/keys/<slug>.ed25519` (64-byte libsodium secret, mode 0600). Pin file: `~/.agents/known-dids.jsonl`. Never print, paste, or store that secret file in chat, traces, or markdown memory.
 
 Harness later catalogs `key.sign` as a Cordis verb that shells out to this CLI. Memory attach shells out; it does not import this package.
