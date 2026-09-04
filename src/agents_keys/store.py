@@ -82,13 +82,20 @@ def _trim_trailing_crlf(data: bytes) -> bytes:
 
 def signing_key_from_file(path: Path | str) -> SigningKey:
     raw = Path(path).read_bytes()
+    if len(raw) == 64:
+        return SigningKey(raw[:32])
+    if len(raw) == 32:
+        return SigningKey(raw)
     if raw.endswith((b"\n", b"\r")):
         raw = _trim_trailing_crlf(raw)
     if len(raw) == 64:
         return SigningKey(raw[:32])
     if len(raw) == 32:
         return SigningKey(raw)
-    text = raw.decode("ascii", errors="strict").strip().lower()
+    try:
+        text = raw.decode("ascii").strip().lower()
+    except UnicodeDecodeError:
+        raise ValueError("key file must be 64-byte secret, 32-byte seed, or hex of either")
     if len(text) == 128 and all(c in "0123456789abcdef" for c in text):
         blob = bytes.fromhex(text)
         return SigningKey(blob[:32])
