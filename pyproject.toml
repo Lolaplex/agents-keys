@@ -4,15 +4,39 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agents-keys"
-version = "0.1.0"
+version = "0.0.1"
 description = "Mint and sign agent Ed25519 keys (did:key). CLI only; no MCP."
 readme = "README.md"
 license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Felix Kempf" },
+]
 requires-python = ">=3.10"
-dependencies = ["pynacl>=1.5,<2"]
+dependencies = [
+    "pynacl>=1.5,<2",
+]
+keywords = ["ed25519", "did-key", "cryptography", "agents", "keys", "signatures", "cli"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security :: Cryptography",
+]
+
+[project.urls]
+Homepage = "https://github.com/Lolaplex/agents-keys"
+Repository = "https://github.com/Lolaplex/agents-keys"
+"Bug Tracker" = "https://github.com/Lolaplex/agents-keys/issues"
 
 [project.scripts]
 agents-keys = "agents_keys.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
