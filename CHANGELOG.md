@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- Root `requirements.txt` (duplicate of `pyproject.toml`; install via `pip install -e .`).
+
 ## [0.0.1] - 2026-09-05
 
 ### Added
