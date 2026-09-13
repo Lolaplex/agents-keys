@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- CI runs only on pull requests to `main`.
 - README now documents install, the real CLI (`--help-json` plus each subcommand), env, and the verify command.
 
 ### Removed
