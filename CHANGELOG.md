@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 - Root `requirements.txt` (duplicate of `pyproject.toml`; install via `pip install -e .`).
+- GitHub Release is no longer cut automatically on `v*.*.*` tags (manual `gh release create` from CHANGELOG instead).
 
 ## [0.0.1] - 2026-09-05
 
