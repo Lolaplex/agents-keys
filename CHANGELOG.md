@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- README now documents install, the real CLI (`--help-json` plus each subcommand), env, and the verify command.
+
 ### Removed
 - Root `requirements.txt` (duplicate of `pyproject.toml`; install via `pip install -e .`).
 - GitHub Release is no longer cut automatically on `v*.*.*` tags (manual `gh release create` from CHANGELOG instead).
