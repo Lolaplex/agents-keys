@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.2] - 2026-09-26
+
 ### Changed
 - CI runs only on pull requests to `main` with strict test suite execution.
 - Refined README with full benchmark specification (architecture diagram, security rationale, CLI reference, and badges).
@@ -20,5 +22,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Host Ed25519 agent key minting and challenge-response proofs. Secret file stays in `~/.agents/keys`; the CLI never prints it.
 
-[Unreleased]: https://github.com/Lolaplex/agents-keys/compare/v0.0.1...HEAD
+[Unreleased]: https://github.com/Lolaplex/agents-keys/compare/v0.0.2...HEAD
+[0.0.2]: https://github.com/Lolaplex/agents-keys/compare/v0.0.1...v0.0.2
 [0.0.1]: https://github.com/Lolaplex/agents-keys/releases/tag/v0.0.1
