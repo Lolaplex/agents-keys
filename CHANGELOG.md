@@ -1,4 +1,4 @@
-﻿# Changelog
+# Changelog
 
 All notable changes to this project will be documented in this file.
 
@@ -8,8 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
-- CI runs only on pull requests to `main`.
-- README now documents install, the real CLI (`--help-json` plus each subcommand), env, and the verify command.
+- CI runs only on pull requests to `main` with strict test suite execution.
+- Refined README with full benchmark specification (architecture diagram, security rationale, CLI reference, and badges).
 
 ### Removed
 - Root `requirements.txt` (duplicate of `pyproject.toml`; install via `pip install -e .`).

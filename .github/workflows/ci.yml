@@ -32,7 +32,8 @@ jobs:
       - name: Run test suite
         timeout-minutes: 5
         run: |
-          python -m unittest discover tests || python -m agents_keys --help-json
+          python -m unittest discover -s tests
+          python -m agents_keys --help-json
 
   notify-failure:
     name: Notify CI Failure
