@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- README lists the live CLI (`mint` through `pin`) and the on-disk secret path `~/.agents/keys/<slug>.ed25519`.
+
 ## [0.0.2] - 2026-09-26
 
 ### Changed
