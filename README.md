@@ -77,6 +77,16 @@ No subcommand prints help.
 
 ---
 
+## ABI
+
+Contract in [`abi/`](abi/):
+
+- [`WHY.md`](abi/WHY.md) — host secret, public stdout
+- [`LAYOUT.md`](abi/LAYOUT.md) — `<slug>.ed25519` and `did:key`
+- [`CLI.md`](abi/CLI.md) — commands
+
+---
+
 ## Tests
 
 ```bash

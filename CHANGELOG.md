@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- ABI contract in `abi/` for the key file, `did:key`, and the CLI.
+
 ### Changed
 - README lists the live CLI (`mint` through `pin`) and the on-disk secret path `~/.agents/keys/<slug>.ed25519`.
 
