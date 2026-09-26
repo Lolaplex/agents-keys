@@ -1,3 +1,0 @@
-# Keep in sync with pyproject.toml
--e .
-pynacl>=1.5,<2

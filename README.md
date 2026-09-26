@@ -1,30 +1,124 @@
 # agents-keys
 
-Mint Ed25519 agent keys, print `did:key`, sign a nonce, prove possession to a board. Pin and resolve home `did.json` locators. Secret stays in `~/.agents/keys/<slug>.ed25519`. This package is a CLI. It is not an MCP server.
+<p align="left">
+  <a href="https://github.com/Lolaplex/agents-keys/releases"><img src="https://img.shields.io/badge/version-0.0.2-blue.svg?style=flat-square" alt="Version 0.0.2"></a>
+  <a href="https://python.org"><img src="https://img.shields.io/badge/Python-3.10+-3776AB.svg?style=flat-square&logo=python&logoColor=white" alt="Python 3.10+"></a>
+  <a href="https://pypi.org/project/agents-keys/"><img src="https://img.shields.io/pypi/v/agents-keys.svg?style=flat-square" alt="PyPI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg?style=flat-square" alt="License"></a>
+</p>
+
+**Mint and sign agent Ed25519 keys (`did:key`) as a secure local host file.**  
+CLI only (`python -m agents_keys`). Pure Python + PyNaCl, zero MCP, zero database dependencies.
+
+The secret key stays safely in `~/.agents/keys/<slug>.ed25519` (64-byte libsodium seed, mode 0600). The CLI never prints, echoes, or logs secret keys.
+
+---
+
+## Quickstart
+
+### 1-Step Setup
 
 ```bash
-python -m pip install -e .
-python -m agents_keys --help-json
-agents-keys mint <slug>
-agents-keys import <slug> <path>
-agents-keys did <slug>
-agents-keys ssh-pubkey <slug>
-agents-keys sign <slug> <nonce>
-agents-keys prove <slug> <board-url> [--verb VERB] [--handle HANDLE] [--successor-did DID]
-agents-keys resolve <locator>
-agents-keys pin <locator>
+pip install agents-keys
 ```
 
-Stdout of `mint`, `import`, and `did` is one `did:key:z6Mk…` line. `sign` prints hex. `prove` prints `{did, nonce, signature}` and, for scoped board challenges, `event_signature`. `resolve` and `pin` print JSON with keys and pin status. The secret is never printed.
+### 2. Agent-Driven Setup (Zero Friction)
 
-Scoped lifecycle proof:
+> [!TIP]
+> **🤖 Agent-Driven Setup (Zero Friction):**  
+> Simply tell your coding agent: **"Mint an agent key for <slug>."**  
+> The agent installs the package, generates the key pair, and outputs the public `did:key` identifier.
+
+*Source checkouts can also be installed and managed using [vand](https://github.com/Lolaplex/vand).*
+
+---
+
+## Why `agents-keys`?
+
+Modern autonomous coding agents require verifiable cryptographic identities without the overhead of heavy decentralized identity (DID) frameworks or cloud KMS dependencies.
+
+**`agents-keys` applies the Lolaplex philosophy:**
+- **Zero Heavy Frameworks**: Pure standard library CLI + minimal PyNaCl Ed25519 bindings.
+- **Local Secret Isolation**: Private keys live strictly on the host file system (`~/.agents/keys/<slug>.ed25519`) with mode `0600`. Secrets are never stored in databases, committed to git, or leaked into chat transcripts.
+- **Standard W3C Identifiers**: Generates compliant `did:key:z6Mk...` multi-codec identifiers compatible with modern cryptography standards.
+- **Challenge-Response Proofs**: Built-in verification for challenge nonces, binding agent public keys to boards, gateways, and peer nodes.
+
+---
+
+## Architecture & Flow
+
+```text
+ ┌─────────────────────────────────────────────────────────────┐
+ │                     CODING AGENT / HOST                     │
+ │          agents-harness · CLI Scripts · Board Boot          │
+ └──────────────────────────────┬──────────────────────────────┘
+                                │  CLI Verbs (mint / sign / prove)
+                                ▼
+ ┌─────────────────────────────────────────────────────────────┐
+ │                         AGENTS-KEYS                         │
+ │     Ed25519 Signer · did:key Multi-codec · Nonce Prover     │
+ └──────────────┬───────────────────────────────┬──────────────┘
+                │                               │
+                ▼                               ▼
+ ┌─────────────────────────────┐ ┌─────────────────────────────┐
+ │       HOST SECRET KEY       │ │       PUBLIC did:key        │
+ │  ~/.agents/keys/<slug>.key  │ │     did:key:z6Mku...        │
+ │  (mode 0600, never leaked)  │ │   Deterministic public ID   │
+ └─────────────────────────────┘ └─────────────────────────────┘
+```
+
+---
+
+## CLI Reference
+
+Machine catalog: `python -m agents_keys --help-json`
+
+| Command | Purpose |
+|---------|---------|
+| `agents-keys mint <slug>` | Writes a new key file. Stdout is one `did:key:z6Mk…` line |
+| `agents-keys import <slug> <path>` | Imports an unencrypted OpenSSH or libsodium secret |
+| `agents-keys did <slug>` | Derives the `did:key` from an existing key file |
+| `agents-keys ssh-pubkey <slug>` | Outputs the public key in standard `ssh-ed25519` format |
+| `agents-keys sign <slug> <nonce>` | Generates an Ed25519 signature hex string over a nonce |
+| `agents-keys prove <slug> <board-url>` | Resolves a board challenge and prints `{did, nonce, signature}` |
+| `agents-keys resolve <locator>` | Fetches `did.json` / mailto home document and prints keys JSON |
+| `agents-keys pin <locator>` | Resolves and TOFU-pins `did:key` in `known-dids.jsonl` |
+
+### Scoped Lifecycle Examples
 
 ```bash
-agents-keys prove human home --verb bind-key --handle alice
-agents-keys prove human home --verb move --handle alice --successor-did did:web:board.example:users:alice
+agents-keys prove human https://board.example --verb bind-key --handle alice
+agents-keys prove human https://board.example --verb move --handle alice --successor-did did:web:board.example:users:alice
 ```
 
-- `AGENTS_KEYS_DIR` overrides the key directory (default `~/.agents/keys`).
-- `AGENTS_KNOWN_DIDS` overrides the pin file (default `~/.agents/known-dids.jsonl`).
+---
 
-Locators: `did:key:…`, `mailto:user@domain`, `did:web:…`, or `https://…/did.json`. For mailto, the home document must cite that mailto in `alsoKnownAs` and carry Ed25519 keys.
+## Environment & Storage
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AGENTS_KEYS_DIR` | `~/.agents/keys` | Directory holding host secret key files |
+| `AGENTS_KNOWN_DIDS` | `~/.agents/known-dids.jsonl` | Local TOFU pin ledger for verified external DIDs |
+
+---
+
+## Constraints
+
+- **No MCP**: Designed strictly as a host CLI. Other agent loops invoke `agents-keys` as an isolated subprocess rather than embedding private key operations in long-running servers.
+- **Never Store Secrets Remotely**: Private keys remain host-bound.
+
+---
+
+## Testing & Verification
+
+Run the test suite:
+
+```bash
+python -m unittest discover -s tests -p "test_*.py"
+```
+
+---
+
+## License
+
+MIT License. See [LICENSE](LICENSE) for details.

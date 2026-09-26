@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agents-keys"
-version = "0.0.1"
+version = "0.0.2"
 description = "Mint and sign agent Ed25519 keys (did:key). CLI only; no MCP."
 readme = "README.md"
 license = "MIT"

@@ -92,6 +92,12 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if not args.help_json:
+        try:
+            from .updates import check_for_updates
+            check_for_updates("agents-keys", __version__)
+        except Exception:
+            pass
     if args.help_json:
         print(json.dumps(help_json(), indent=2))
         return 0
