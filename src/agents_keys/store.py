@@ -1,4 +1,4 @@
-"""Agent Ed25519 files: ~/.agents/keys/<slug>.ed25519 (libsodium secret)."""
+"""Agent Ed25519 files: <host>/keys/<slug>.ed25519 (libsodium secret)."""
 from __future__ import annotations
 
 import os
@@ -19,10 +19,8 @@ def keys_dir() -> Path:
     env = os.environ.get("AGENTS_KEYS_DIR", "").strip()
     if env:
         return Path(env)
-    home = os.environ.get("HOME") or os.environ.get("USERPROFILE") or ""
-    if not home:
-        raise RuntimeError("HOME / USERPROFILE unset")
-    return Path(home) / ".agents" / "keys"
+    from agents_workspace import Host
+    return Host.from_env().keys
 
 
 def key_path(slug: str) -> Path:

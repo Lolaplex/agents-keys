@@ -1,4 +1,4 @@
-"""Local did:key pin store (~/.agents/known-dids.jsonl)."""
+"""Local did:key pin store (<host>/keys/known-dids.jsonl)."""
 from __future__ import annotations
 
 import json
@@ -21,17 +21,32 @@ class PinMismatchError(RuntimeError):
 
 
 def pins_path() -> Path:
-    env = os.environ.get("AGENTS_KNOWN_DIDS", "").strip()
+    env = os.environ.get("AGENTS_KNOWN_DIDS_FILE", "").strip()
     if env:
         return Path(env)
+    legacy_env = os.environ.get("AGENTS_KNOWN_DIDS", "").strip()
+    if legacy_env:
+        import warnings
+        warnings.warn(
+            "AGENTS_KNOWN_DIDS is deprecated; use AGENTS_KNOWN_DIDS_FILE",
+            DeprecationWarning, stacklevel=2,
+        )
+        return Path(legacy_env)
+    from agents_workspace import Host
+    return Host.from_env().keys / "known-dids.jsonl"
+
+
+def _legacy_pins_path() -> Path:
     home = os.environ.get("HOME") or os.environ.get("USERPROFILE") or ""
-    if not home:
-        raise RuntimeError("HOME / USERPROFILE unset")
-    return Path(home) / ".agents" / "known-dids.jsonl"
+    return Path(home) / ".agents" / "known-dids.jsonl" if home else Path("~/.agents/known-dids.jsonl")
 
 
 def load_pins(path: Path | None = None) -> list[PinRecord]:
     p = path or pins_path()
+    if not p.is_file() and path is None:
+        legacy = _legacy_pins_path()
+        if legacy.is_file():
+            p = legacy  # one-time read; C80 moves the file
     if not p.is_file():
         return []
     out: list[PinRecord] = []

@@ -21,7 +21,7 @@ def help_json() -> dict:
         "commands": {
             "mint": {
                 "usage": "agents-keys mint <slug>",
-                "description": "Write ~/.agents/keys/<slug>.ed25519. Print did:key only.",
+                "description": "Write <host>/keys/<slug>.ed25519. Print did:key only.",
             },
             "import": {
                 "usage": "agents-keys import <slug> <path>",
@@ -49,11 +49,11 @@ def help_json() -> dict:
             },
             "pin": {
                 "usage": "agents-keys pin <locator>",
-                "description": "Resolve locator and TOFU-pin did:key to ~/.agents/known-dids.jsonl.",
+                "description": "Resolve locator and TOFU-pin did:key to <host>/keys/known-dids.jsonl.",
             },
         },
         "flags": ["--help-json"],
-        "env": ["AGENTS_KEYS_DIR", "AGENTS_KNOWN_DIDS"],
+        "env": ["AGENTS_KEYS_DIR", "AGENTS_KNOWN_DIDS_FILE", "AGENTS_USERS_FILE"],
     }
 
 
