@@ -212,3 +212,41 @@ class TestCli(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_host_scoped_paths(tmp_path, monkeypatch):
+    import agents_keys.store as store
+    import agents_keys.pins as pins
+    host = tmp_path / "host"
+    monkeypatch.setenv("AGENTS_HOST_DIR", str(host))
+    monkeypatch.delenv("AGENTS_KEYS_DIR", raising=False)
+    monkeypatch.delenv("AGENTS_KNOWN_DIDS", raising=False)
+    monkeypatch.delenv("AGENTS_KNOWN_DIDS_FILE", raising=False)
+    assert store.keys_dir() == host / "keys"
+    assert pins.pins_path() == host / "keys" / "known-dids.jsonl"
+
+
+def test_known_dids_file_env(tmp_path, monkeypatch):
+    import agents_keys.pins as pins
+    monkeypatch.setenv("AGENTS_KNOWN_DIDS_FILE", str(tmp_path / "pins.jsonl"))
+    assert pins.pins_path() == tmp_path / "pins.jsonl"
+
+
+def test_users_file_and_migration(tmp_path, monkeypatch):
+    from agents_keys import users
+    host = tmp_path / "host"
+    monkeypatch.setenv("AGENTS_HOST_DIR", str(host))
+    monkeypatch.delenv("AGENTS_USERS_FILE", raising=False)
+    monkeypatch.delenv("AGENTS_IDENTITY_PATH", raising=False)
+    assert users.users_file() == host / "users.json"
+    # legacy identity.json lifts once
+    legacy = host / "identity.json"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text('{"users": {"felix": {"did": "did:key:zABC"}}}', encoding="utf-8")
+    moved = users.migrate_identity()
+    assert moved == host / "users.json"
+    assert users.lookup_did("felix") == "did:key:zABC"
+    # second call is a no-op
+    assert users.migrate_identity() is None
+    users.bind_did("telegram:42", "did:key:zDEF")
+    assert users.lookup_did("telegram:42") == "did:key:zDEF"
