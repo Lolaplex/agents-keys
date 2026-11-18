@@ -76,6 +76,10 @@ def build_parser() -> argparse.ArgumentParser:
     sign_p = sub.add_parser("sign", help="Sign a nonce")
     sign_p.add_argument("slug")
     sign_p.add_argument("nonce")
+    ver_p = sub.add_parser("verify", help="Verify a did:key signature (base64url) over a message")
+    ver_p.add_argument("did")
+    ver_p.add_argument("message")
+    ver_p.add_argument("sig")
     prove_p = sub.add_parser("prove", help="Board challenge + signature JSON")
     prove_p.add_argument("slug")
     prove_p.add_argument("board_url")
@@ -125,6 +129,15 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "sign":
             key, _did, _path = load(args.slug)
             print(sign_hex(key, args.nonce))
+            return 0
+        if args.command == "verify":
+            from .store import verify_did
+            try:
+                verify_did(args.did, args.message.encode("utf-8"), args.sig)
+            except ValueError as e:
+                print(f"invalid: {e}", file=sys.stderr)
+                return 1
+            print("valid")
             return 0
         if args.command == "prove":
             board = args.board_url.rstrip("/")
