@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `.mailmap` maps legacy `Klix`/`Felix Kempf` author names to `Klix927` (no history rewrite; display only).
 
 ### Added
+- `verify <did> <message> <sig>` subcommand: verifies a base64url Ed25519 signature against a `did:key:z` without needing the secret key — lets stdlib-only tools (agents-relay presence) validate signed documents by shelling out.
 - Host-scoped resolution via agents-workspace: keys dir `<host>/keys` (`AGENTS_KEYS_DIR` override stays), known-dids `<host>/keys/known-dids.jsonl` (`AGENTS_KNOWN_DIDS_FILE`; `AGENTS_KNOWN_DIDS` deprecated alias). New `users.py` owns `<host>/users.json` (`AGENTS_USERS_FILE`; `AGENTS_IDENTITY_PATH` deprecated alias) with one-time `identity.json` migration and `bind_did`/`lookup_did`. Update-check cache under `<host>/cache/updates/`. Legacy `~/.agents/known-dids.jsonl` is read once when the new file is missing.
 
 ## [0.0.4] - 2026-10-06

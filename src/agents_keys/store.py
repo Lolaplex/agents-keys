@@ -107,6 +107,37 @@ def did_key_from_signing_key(key: SigningKey) -> str:
     return "did:key:z" + _b58_encode(prefixed)
 
 
+def verify_key_from_did(did: str) -> "VerifyKey":
+    """Public key embedded in a did:key:z multibase string."""
+    from nacl.signing import VerifyKey
+
+    if not did.startswith("did:key:z"):
+        raise ValueError("id is not a did:key")
+    raw = _b58_decode(did[len("did:key:z"):])
+    if len(raw) != 34 or raw[0] != 0xED or raw[1] != 0x01:
+        raise ValueError("did:key does not carry an ed25519 key")
+    return VerifyKey(bytes(raw[2:]))
+
+
+def verify_did(did: str, message: bytes, signature_b64url: str) -> None:
+    """Verify an Ed25519 signature (base64url, no padding) made by `did`.
+    Raises on any failure — callers surface the reason, never swallow it."""
+    import base64
+
+    try:
+        sig = base64.urlsafe_b64decode(signature_b64url + "=" * (-len(signature_b64url) % 4))
+    except Exception as e:
+        raise ValueError(f"sig is not base64url: {e}") from e
+    if len(sig) != 64:
+        raise ValueError("sig malformed: not 64 bytes")
+    try:
+        verify_key_from_did(did).verify(message, sig)
+    except ValueError:
+        raise
+    except Exception:
+        raise ValueError("signature does not verify")
+
+
 def did_from_path(path: Path | str) -> str:
     return did_key_from_signing_key(signing_key_from_file(path))
 
