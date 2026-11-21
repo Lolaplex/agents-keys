@@ -346,3 +346,22 @@ def test_bind_did_interoperates_with_traces_and_workspace_members(tmp_path, monk
     # agents_workspace.members.migrate_members accepts the user record
     rows = migrate_members(ws)
     assert rows == [{"id": uid, "role": "owner", "did": "did:key:zDEF"}]
+
+
+def test_store_and_pins_standalone_fallback(tmp_path, monkeypatch):
+    import agents_keys.pins as pins
+    import agents_keys.store as store
+
+    host = tmp_path / "host"
+    monkeypatch.setenv("AGENTS_HOST_DIR", str(host))
+    for k in ("AGENTS_KEYS_DIR", "AGENTS_KNOWN_DIDS", "AGENTS_KNOWN_DIDS_FILE"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setitem(sys.modules, "agents_workspace", None)
+
+    assert store.keys_dir() == host / "keys"
+    assert pins.pins_path() == host / "keys" / "known-dids.jsonl"
+    did = store.mint("standalone_bot")["did"]
+    _, loaded_did, _ = store.load("standalone_bot")
+    assert did.startswith("did:key:z")
+    assert loaded_did == did
+
