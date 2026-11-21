@@ -248,5 +248,120 @@ def test_users_file_and_migration(tmp_path, monkeypatch):
     assert users.lookup_did("felix") == "did:key:zABC"
     # second call is a no-op
     assert users.migrate_identity() is None
-    users.bind_did("telegram:42", "did:key:zDEF")
+    uid = users.bind_did("telegram:42", "did:key:zDEF")
+    assert uid.startswith("u_") and len(uid) == 14
     assert users.lookup_did("telegram:42") == "did:key:zDEF"
+    assert users.lookup_did(uid) == "did:key:zDEF"
+
+
+def test_bind_did_canonical_schema_and_legacy_upgrade(tmp_path, monkeypatch):
+    import re
+    from agents_keys import users
+
+    host = tmp_path / "host"
+    monkeypatch.setenv("AGENTS_HOST_DIR", str(host))
+    monkeypatch.delenv("AGENTS_USERS_FILE", raising=False)
+    monkeypatch.delenv("AGENTS_IDENTITY_PATH", raising=False)
+
+    # Fresh binding creates canonical u_<12hex> record
+    uid = users.bind_did("telegram:42", "did:key:zDEF")
+    assert re.match(r"^u_[0-9a-f]{12}$", uid)
+    disk = json.loads((host / "users.json").read_text(encoding="utf-8"))
+    assert disk["users"][uid] == {
+        "id": uid,
+        "aliases": ["telegram:42"],
+        "did": "did:key:zDEF",
+    }
+
+    # Re-binding same alias updates DID in place without minting a second user
+    uid_same = users.bind_did("telegram:42", "did:key:zDEF2")
+    assert uid_same == uid
+    assert users.lookup_did("telegram:42") == "did:key:zDEF2"
+
+    # Binding second alias with explicit user_id attaches to same record
+    uid_explicit = users.bind_did("repl:local", "did:key:zDEF3", user_id=uid)
+    assert uid_explicit == uid
+    disk = json.loads((host / "users.json").read_text(encoding="utf-8"))
+    assert disk["users"][uid]["aliases"] == ["telegram:42", "repl:local"]
+    assert disk["users"][uid]["did"] == "did:key:zDEF3"
+    assert users.lookup_did("repl:local") == "did:key:zDEF3"
+
+    # Legacy alias-keyed row upgrades cleanly to canonical u_<12hex> and pops old key
+    legacy_path = tmp_path / "legacy_users.json"
+    legacy_path.write_text(
+        json.dumps({"users": {"felix": {"did": "did:key:zOLD", "aliases": ["felix", "tg:1"]}}}),
+        encoding="utf-8",
+    )
+    assert users.lookup_did("felix", users_path=legacy_path) == "did:key:zOLD"
+    upgraded_uid = users.bind_did("felix", "did:key:zNEW", users_path=legacy_path)
+    assert re.match(r"^u_[0-9a-f]{12}$", upgraded_uid)
+    upgraded_disk = json.loads(legacy_path.read_text(encoding="utf-8"))
+    assert "felix" not in upgraded_disk["users"]
+    assert upgraded_disk["users"][upgraded_uid] == {
+        "id": upgraded_uid,
+        "aliases": ["felix", "tg:1"],
+        "did": "did:key:zNEW",
+    }
+
+
+def test_users_file_standalone_fallback(tmp_path, monkeypatch):
+    from agents_keys import users
+
+    host = tmp_path / "host"
+    monkeypatch.setenv("AGENTS_HOST_DIR", str(host))
+    monkeypatch.delenv("AGENTS_USERS_FILE", raising=False)
+    monkeypatch.delenv("AGENTS_IDENTITY_PATH", raising=False)
+    monkeypatch.setitem(sys.modules, "agents_workspace", None)
+
+    assert users.users_file() == host.resolve() / "users.json"
+    custom = tmp_path / "custom_users.json"
+    monkeypatch.setenv("AGENTS_USERS_FILE", str(custom))
+    assert users.users_file() == custom.resolve()
+
+
+def test_bind_did_interoperates_with_traces_and_workspace_members(tmp_path, monkeypatch):
+    import pytest
+    from agents_workspace import Host
+    from agents_workspace.members import migrate_members
+    from agents_keys import users
+
+    traces_identity = pytest.importorskip("agents_traces.identity")
+
+    host_dir = tmp_path / "host"
+    monkeypatch.setenv("AGENTS_HOST_DIR", str(host_dir))
+    monkeypatch.delenv("AGENTS_USERS_FILE", raising=False)
+    monkeypatch.delenv("AGENTS_IDENTITY_PATH", raising=False)
+
+    host = Host.open(host_dir)
+    ws = host.create("demo")
+    uid = users.bind_did("telegram:42", "did:key:zDEF")
+
+    # agents_traces.identity.IdentityStore resolves same user id and keeps did
+    istore = traces_identity.IdentityStore(workspace=ws)
+    resolved = istore.resolve(channel="telegram", user="42")
+    assert resolved.user.id == uid
+    assert resolved.user.did == "did:key:zDEF"
+    assert "telegram:42" in resolved.user.aliases
+
+    # agents_workspace.members.migrate_members accepts the user record
+    rows = migrate_members(ws)
+    assert rows == [{"id": uid, "role": "owner", "did": "did:key:zDEF"}]
+
+
+def test_store_and_pins_standalone_fallback(tmp_path, monkeypatch):
+    import agents_keys.pins as pins
+    import agents_keys.store as store
+
+    host = tmp_path / "host"
+    monkeypatch.setenv("AGENTS_HOST_DIR", str(host))
+    for k in ("AGENTS_KEYS_DIR", "AGENTS_KNOWN_DIDS", "AGENTS_KNOWN_DIDS_FILE"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setitem(sys.modules, "agents_workspace", None)
+
+    assert store.keys_dir() == host / "keys"
+    assert pins.pins_path() == host / "keys" / "known-dids.jsonl"
+    did = store.mint("standalone_bot")["did"]
+    _, loaded_did, _ = store.load("standalone_bot")
+    assert did.startswith("did:key:z")
+    assert loaded_did == did
+

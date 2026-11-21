@@ -15,12 +15,21 @@ def slug_ok(slug: str) -> bool:
     return bool(_SLUG.match(slug))
 
 
+def _host_dir_fallback() -> Path:
+    raw = os.environ.get("AGENTS_HOST_DIR", "").strip()
+    return Path(raw).expanduser() if raw else Path.home() / ".agents"
+
+
 def keys_dir() -> Path:
     env = os.environ.get("AGENTS_KEYS_DIR", "").strip()
     if env:
         return Path(env)
-    from agents_workspace import Host
-    return Host.from_env().keys
+    try:
+        from agents_workspace import Host
+
+        return Host.from_env().keys
+    except ImportError:
+        return _host_dir_fallback() / "keys"
 
 
 def key_path(slug: str) -> Path:

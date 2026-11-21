@@ -32,8 +32,14 @@ def pins_path() -> Path:
             DeprecationWarning, stacklevel=2,
         )
         return Path(legacy_env)
-    from agents_workspace import Host
-    return Host.from_env().keys / "known-dids.jsonl"
+    try:
+        from agents_workspace import Host
+
+        return Host.from_env().keys / "known-dids.jsonl"
+    except ImportError:
+        raw = os.environ.get("AGENTS_HOST_DIR", "").strip()
+        host_dir = Path(raw).expanduser() if raw else Path.home() / ".agents"
+        return host_dir / "keys" / "known-dids.jsonl"
 
 
 def _legacy_pins_path() -> Path:
