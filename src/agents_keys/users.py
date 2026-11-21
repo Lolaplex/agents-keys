@@ -69,6 +69,8 @@ def _find_by_alias(users: dict, alias: str) -> tuple[str, dict] | None:
 
 def _upgrade_legacy_row(users: dict, legacy_key: str, alias: str) -> tuple[str, dict]:
     legacy_row = users.pop(legacy_key)
+    if not isinstance(legacy_row, dict):
+        legacy_row = {"did": str(legacy_row)} if legacy_row else {}
     uid = _mint_user_id(users)
     raw_aliases = legacy_row.get("aliases")
     aliases = (
@@ -156,6 +158,8 @@ def bind_did(
                     row = direct
                 else:
                     uid, row = _upgrade_legacy_row(users, alias, alias)
+            elif direct:
+                uid, row = _upgrade_legacy_row(users, alias, alias)
 
     if row is None:
         uid = req_uid or _mint_user_id(users)
