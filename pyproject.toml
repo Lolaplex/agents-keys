@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agents-keys"
-version = "0.0.4"
+version = "0.0.5"
 description = "Mint and sign agent Ed25519 keys (did:key). CLI only; no MCP."
 readme = "README.md"
 license = "MIT"
@@ -13,7 +13,7 @@ authors = [{ name = "Lolaplex" }]
 requires-python = ">=3.10"
 dependencies = [
     "pynacl>=1.5,<2",
-    "agents-workspace>=0.1.0,<1",
+    "agents-workspace>=0.2.0,<1",
 ]
 keywords = ["ed25519", "did-key", "cryptography", "agents", "keys", "signatures", "cli"]
 classifiers = [
