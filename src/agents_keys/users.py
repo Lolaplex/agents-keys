@@ -117,7 +117,7 @@ def bind_did(
     users_path: Path | None = None,
     user_id: str = "",
 ) -> str:
-    """Record did:key for an alias (e.g. 'felix', 'telegram:42') under canonical u_<12hex>."""
+    """Record did:key for an alias (e.g. 'alice', 'telegram:42') under canonical u_<12hex>."""
     target = users_path or users_file()
     data: dict = {"users": {}}
     if target.exists():

@@ -11,6 +11,10 @@ _STRIP = ("sig", "signature")
 
 def canonical_frame_bytes(kind: str, payload: dict) -> bytes:
     """`ws-frame/1\n<kind>\n<canonical-json>`; sig/signature keys stripped."""
+    if not isinstance(kind, str) or not kind or "\n" in kind or "\r" in kind:
+        raise ValueError("frame kind must be a non-empty string without CR/LF")
+    if not isinstance(payload, dict):
+        raise ValueError("frame payload must be a dict")
     body = {k: v for k, v in payload.items() if k not in _STRIP}
     canon = json.dumps(
         body,
@@ -34,6 +38,8 @@ def sign_frame(slug: str, kind: str, payload: dict) -> dict:
 
 def verify_frame(did: str, kind: str, frame: dict) -> None:
     """Raise ValueError unless `frame` is a `kind` frame signed by `did`."""
+    if not isinstance(frame, dict):
+        raise ValueError("frame must be a dict")
     if frame.get("did") != did:
         raise ValueError("frame did mismatch")
     if frame.get("kind") != kind:

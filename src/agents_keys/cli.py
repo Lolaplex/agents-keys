@@ -15,6 +15,7 @@ from .store import did_from_path, key_path, load, mint, sign_b64url, sign_hex
 
 
 _SIG_TOKEN = re.compile(r"[A-Za-z0-9_-]{86}")
+_VERIFY_FLAGS = {"--stdin", "--help-json", "-h", "--help"}
 
 
 def _message_arg(value: str | None, use_stdin: bool) -> str:
@@ -34,52 +35,62 @@ def help_json() -> dict:
             "mint": {
                 "usage": "agents-keys mint <slug>",
                 "description": "Write <host>/keys/<slug>.ed25519. Print did:key only.",
-                "side_effects": ["writes <host>/keys/<slug>.ed25519"],
+                "side_effects": "mutating",
+                "effects": ["writes <host>/keys/<slug>.ed25519"],
             },
             "ensure": {
                 "usage": "agents-keys ensure <slug>",
                 "description": "Print did:key; mint <host>/keys/<slug>.ed25519 on first call.",
-                "side_effects": ["writes <host>/keys/<slug>.ed25519 if missing"],
+                "side_effects": "mutating",
+                "effects": ["writes <host>/keys/<slug>.ed25519 if missing"],
             },
             "import": {
                 "usage": "agents-keys import <slug> <path>",
                 "description": "Import unencrypted OpenSSH or sodium secret; print did:key only.",
-                "side_effects": ["writes <host>/keys/<slug>.ed25519"],
+                "side_effects": "mutating",
+                "effects": ["writes <host>/keys/<slug>.ed25519"],
             },
             "did": {
                 "usage": "agents-keys did <slug>",
                 "description": "Derive did:key from the key file.",
-                "side_effects": [],
+                "side_effects": "read-only",
+                "effects": [],
             },
             "ssh-pubkey": {
                 "usage": "agents-keys ssh-pubkey <slug>",
                 "description": "Print one ssh-ed25519 public line for the slug key.",
-                "side_effects": [],
+                "side_effects": "read-only",
+                "effects": [],
             },
             "sign": {
                 "usage": "agents-keys sign <slug> [<nonce>|-|--stdin] [--b64url]",
                 "description": "Ed25519 signature over the message. Hex by default; --b64url emits the verify-compatible form.",
-                "side_effects": [],
+                "side_effects": "read-only",
+                "effects": [],
             },
             "verify": {
                 "usage": "agents-keys verify <did> [<message>|-|--stdin] <sig>",
                 "description": "Verify an 86-char unpadded base64url Ed25519 signature made by did:key.",
-                "side_effects": [],
+                "side_effects": "read-only",
+                "effects": [],
             },
             "prove": {
                 "usage": "agents-keys prove <slug> <board-url> [--verb VERB] [--handle HANDLE] [--successor-did DID]",
                 "description": "Challenge the board and print {did, nonce, signature, event_signature?}.",
-                "side_effects": ["network fetch"],
+                "side_effects": "mutating",
+                "effects": ["network fetch"],
             },
             "resolve": {
                 "usage": "agents-keys resolve <locator>",
                 "description": "Fetch did.json / mailto home doc; print keys JSON. Exit 3 when a pinned locator serves a different did:key.",
-                "side_effects": ["network fetch"],
+                "side_effects": "read-only",
+                "effects": ["network fetch"],
             },
             "pin": {
                 "usage": "agents-keys pin <locator>",
                 "description": "Resolve locator and TOFU-pin did:key to <host>/keys/known-dids.jsonl.",
-                "side_effects": ["network fetch", "writes <host>/keys/known-dids.jsonl"],
+                "side_effects": "mutating",
+                "effects": ["network fetch", "writes <host>/keys/known-dids.jsonl"],
             },
         },
         "flags": ["--help-json", "--stdin", "--b64url"],
@@ -133,10 +144,20 @@ def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     rescued_sig: str | None = None
     if argv[:1] == ["verify"]:
-        # The sig is the last positional; a base64url token can start with '-'
-        # or trail a flag, both of which argparse misroutes. Pull it first.
+        # The sig is the last positional; argparse misroutes it when it starts
+        # with '-' or trails a flag (nargs='?' eats the match). Rescue only
+        # those: '-'-leading non-flag tokens (malformed ones included, so
+        # verify_did exits 1 instead of argparse 2) and a sig-shaped token
+        # orphaned after a flag. An 86-char message stays the message.
         for i in range(len(argv) - 1, 0, -1):
-            if _SIG_TOKEN.fullmatch(argv[i]):
+            tok = argv[i]
+            dash_leading = (
+                len(tok) > 1
+                and tok.startswith("-")
+                and tok not in _VERIFY_FLAGS
+            )
+            flag_orphaned = argv[i - 1] in _VERIFY_FLAGS and _SIG_TOKEN.fullmatch(tok)
+            if dash_leading or flag_orphaned:
                 rescued_sig = argv.pop(i)
                 break
     args = parser.parse_args(argv)

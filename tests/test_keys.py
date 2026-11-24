@@ -17,8 +17,10 @@ from nacl.signing import SigningKey
 from agents_keys.frames import canonical_frame_bytes, sign_frame, verify_frame
 from agents_keys.pins import (
     PinMismatchError,
+    PinRecord,
     check_keys_match_pin,
     find_pin_by_locator,
+    find_pins_by_locators,
     load_pins,
     pin_locator,
     pins_path,
@@ -204,6 +206,45 @@ class TestTofuLocatorSwap(unittest.TestCase):
         self.assertTrue(match)
         self.assertIsNone(pinned)
 
+    def test_check_keys_match_pin_locator_conflict_beats_did_pin(self):
+        """corp.example compromised: serves did M under a locator pinned to did A."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        pin_file = Path(tmp.name) / "pins.jsonl"
+        did_m = did_key_from_signing_key(SigningKey.generate())
+        env = {"AGENTS_KNOWN_DIDS_FILE": str(pin_file)}
+        with patch.dict(os.environ, env):
+            pin_locator(GOLDEN_DID, ["mailto:alice@corp.example"])
+            pin_locator(did_m, ["mailto:mallory@evil.example"])
+            match, pinned = check_keys_match_pin(
+                [did_m], did_m, locators=["mailto:Alice@corp.example"]
+            )
+        self.assertFalse(match)
+        self.assertEqual(pinned, GOLDEN_DID)
+
+    def test_check_keys_match_pin_explicit_pinned_did(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        pin_file = Path(tmp.name) / "pins.jsonl"
+        did_m = did_key_from_signing_key(SigningKey.generate())
+        with patch.dict(os.environ, {"AGENTS_KNOWN_DIDS_FILE": str(pin_file)}):
+            match, pinned = check_keys_match_pin([did_m], did_m, pinned_did=GOLDEN_DID)
+            self.assertFalse(match)
+            self.assertEqual(pinned, GOLDEN_DID)
+            match, _ = check_keys_match_pin([did_m], did_m, pinned_did=did_m)
+            self.assertTrue(match)
+
+    def test_find_pins_by_locators_all_records_case_insensitive(self):
+        records = [
+            PinRecord(did="did:key:zA", locators=["mailto:alice@corp.example"]),
+            PinRecord(did="did:key:zB", locators=["mailto:mallory@evil.example"]),
+        ]
+        hits = find_pins_by_locators(
+            [" MAILTO:ALICE@CORP.EXAMPLE ", "mailto:Mallory@EVIL.example"], records
+        )
+        self.assertEqual([r.did for r in hits], ["did:key:zA", "did:key:zB"])
+        self.assertEqual(find_pins_by_locators(["nobody@x.example"], records), [])
+
     def test_resolve_locator_reports_mismatch(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -311,6 +352,28 @@ class TestFrames(unittest.TestCase):
             with self.assertRaises(ValueError):
                 verify_frame(did, "ws:announce", unsigned)
 
+    def test_frame_kind_rejects_crlf_and_empty(self):
+        for bad in ("a\nb", "a\rb", ""):
+            with self.assertRaises(ValueError, msg=repr(bad)):
+                canonical_frame_bytes(bad, {})
+
+    def test_canonical_bytes_rejects_non_dict_payload(self):
+        with self.assertRaises(ValueError):
+            canonical_frame_bytes("ws:announce", "not-a-dict")
+
+    def test_sign_frame_rejects_newline_kind(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        with patch.dict(os.environ, {"AGENTS_KEYS_DIR": tmp.name}):
+            mint("frame-bot")
+            with self.assertRaises(ValueError):
+                sign_frame("frame-bot", "a\nb", {"seq": 1})
+
+    def test_verify_frame_rejects_non_dict(self):
+        for bad in ("not-a-dict", ["did", GOLDEN_DID], None):
+            with self.assertRaises(ValueError, msg=repr(bad)):
+                verify_frame(GOLDEN_DID, "ws:announce", bad)
+
 
 class TestCli(unittest.TestCase):
     def _run(self, *args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
@@ -338,6 +401,19 @@ class TestCli(unittest.TestCase):
         self.assertIn("ensure", data["commands"])
         for name, spec in data["commands"].items():
             self.assertIn("side_effects", spec, name)
+
+    def test_help_json_side_effects_enum(self):
+        proc = self._run("--help-json")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        data = json.loads(proc.stdout)
+        for name in ("did", "ssh-pubkey", "sign", "verify", "resolve"):
+            self.assertEqual(
+                data["commands"][name]["side_effects"], "read-only", name
+            )
+        for name in ("mint", "ensure", "import", "pin", "prove"):
+            self.assertEqual(
+                data["commands"][name]["side_effects"], "mutating", name
+            )
 
     def test_ensure_mints_once_and_prints_did(self):
         from agents_keys.cli import main
@@ -419,6 +495,26 @@ class TestCli(unittest.TestCase):
             rc = main(["verify", GOLDEN_DID, "m", dash_sig])
         self.assertEqual(rc, 1)
         self.assertIn("signature does not verify", err.getvalue())
+
+    def test_verify_message_looking_like_sig_is_not_rescued(self):
+        from agents_keys.cli import main
+
+        # an 86-char message must not be popped as the sig; args stay put
+        err = io.StringIO()
+        with redirect_stderr(err):
+            rc = main(["verify", GOLDEN_DID, "A" * 86, "invalid_sig"])
+        self.assertEqual(rc, 1)
+        self.assertIn("not base64url", err.getvalue())
+
+    def test_verify_dash_leading_short_sig_exits_1(self):
+        from agents_keys.cli import main
+
+        # '-'-leading malformed sig reaches verify_did, not argparse exit 2
+        err = io.StringIO()
+        with redirect_stderr(err):
+            rc = main(["verify", GOLDEN_DID, "msg", "-" + "A" * 84])
+        self.assertEqual(rc, 1)
+        self.assertIn("not base64url", err.getvalue())
 
     def test_mint_did_sign_roundtrip(self):
         tmp = tempfile.TemporaryDirectory()
