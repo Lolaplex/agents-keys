@@ -90,6 +90,15 @@ def find_pin(did: str, records: list[PinRecord] | None = None) -> PinRecord | No
     return None
 
 
+def find_pin_by_locator(locators: list[str], records: list[PinRecord] | None = None) -> PinRecord | None:
+    records = records if records is not None else load_pins()
+    wanted = set(locators)
+    for r in records:
+        if wanted & set(r.locators):
+            return r
+    return None
+
+
 def upsert_pin(did: str, locators: list[str], *, tofu: bool = True) -> PinRecord:
     records = load_pins()
     existing = find_pin(did, records)
@@ -126,12 +135,20 @@ def pin_locator(did: str, locators: list[str]) -> PinRecord:
     return upsert_pin(did, locators, tofu=True)
 
 
-def check_keys_match_pin(keys: list[str], pinned_did: str | None) -> tuple[bool, str | None]:
-    """Return (match, pinned_did). If no pin, match is True and pinned_did is None."""
+def check_keys_match_pin(
+    keys: list[str],
+    pinned_did: str | None = None,
+    locators: list[str] | None = None,
+) -> tuple[bool, str | None]:
+    """Return (match, pinned_did). If no pin, match is True and pinned_did is None.
+    A pin found by locator whose did differs from the served primary is a TOFU
+    break: match=False and the expected pinned did is returned."""
     if not keys:
         return False, pinned_did
     primary = keys[0]
     rec = find_pin(primary)
+    if rec is None and locators:
+        rec = find_pin_by_locator(locators)
     if rec is None:
         return True, None
     if primary != rec.did:

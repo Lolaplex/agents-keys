@@ -9,6 +9,7 @@ from nacl.signing import SigningKey
 
 _SLUG = re.compile(r"^[a-z0-9][a-z0-9._-]{0,47}$")
 _B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+_SIG_B64URL = re.compile(r"^[A-Za-z0-9_-]{86}$")
 
 
 def slug_ok(slug: str) -> bool:
@@ -133,10 +134,9 @@ def verify_did(did: str, message: bytes, signature_b64url: str) -> None:
     Raises on any failure — callers surface the reason, never swallow it."""
     import base64
 
-    try:
-        sig = base64.urlsafe_b64decode(signature_b64url + "=" * (-len(signature_b64url) % 4))
-    except Exception as e:
-        raise ValueError(f"sig is not base64url: {e}") from e
+    if not _SIG_B64URL.match(signature_b64url):
+        raise ValueError("sig is not base64url: expected 86 unpadded base64url chars")
+    sig = base64.urlsafe_b64decode(signature_b64url + "==")
     if len(sig) != 64:
         raise ValueError("sig malformed: not 64 bytes")
     try:
@@ -153,6 +153,13 @@ def did_from_path(path: Path | str) -> str:
 
 def sign_hex(key: SigningKey, message: str) -> str:
     return key.sign(message.encode("utf-8")).signature.hex()
+
+
+def sign_b64url(key: SigningKey, data: bytes) -> str:
+    """Unpadded base64url signature (86 chars) — the format verify_did accepts."""
+    import base64
+
+    return base64.urlsafe_b64encode(key.sign(data).signature).decode("ascii").rstrip("=")
 
 
 def load(slug: str) -> tuple[SigningKey, str, Path]:

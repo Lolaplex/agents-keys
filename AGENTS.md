@@ -7,10 +7,12 @@ Ed25519 agent keys as a file on the host. CLI only (`python -m agents_keys`). No
 ```bash
 python -m agents_keys --help-json
 python -m agents_keys mint <slug>
+python -m agents_keys ensure <slug>
 python -m agents_keys import <slug> <path>
 python -m agents_keys did <slug>
 python -m agents_keys ssh-pubkey <slug>
-python -m agents_keys sign <slug> <nonce>
+python -m agents_keys sign <slug> [<nonce>|-|--stdin] [--b64url]
+python -m agents_keys verify <did> [<message>|-|--stdin] <sig>
 python -m agents_keys prove <slug> https://board.example
 python -m agents_keys resolve <locator>
 python -m agents_keys pin <locator>
