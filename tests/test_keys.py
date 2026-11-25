@@ -14,7 +14,17 @@ from unittest.mock import patch
 
 from nacl.signing import SigningKey
 
-from agents_keys.pins import PinMismatchError, load_pins, pin_locator, pins_path
+from agents_keys.frames import canonical_frame_bytes, sign_frame, verify_frame
+from agents_keys.pins import (
+    PinMismatchError,
+    PinRecord,
+    check_keys_match_pin,
+    find_pin_by_locator,
+    find_pins_by_locators,
+    load_pins,
+    pin_locator,
+    pins_path,
+)
 from agents_keys.resolve import extract_ed25519_dids, resolve_locator
 from agents_keys.ssh import ssh_ed25519_pubkey_line
 from agents_keys.store import (
@@ -22,9 +32,11 @@ from agents_keys.store import (
     did_key_from_signing_key,
     load,
     mint,
+    sign_b64url,
     sign_hex,
     signing_key_from_file,
     sodium_secret_bytes,
+    verify_did,
 )
 
 GOLDEN_SEED = "1111111111111111111111111111111111111111111111111111111111111111"
@@ -138,6 +150,230 @@ class TestPins(unittest.TestCase):
             with self.assertRaises(PinMismatchError):
                 pin_locator("did:key:z6MkOTHEROTHEROTHEROTHEROTHEROTHEROTHEROTHEROTHEROt", ["mailto:alice@corp.example"])
 
+    def test_locator_lookup_finds_pin(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        pin_file = Path(tmp.name) / "pins.jsonl"
+        with patch.dict(os.environ, {"AGENTS_KNOWN_DIDS_FILE": str(pin_file)}):
+            pin_locator(GOLDEN_DID, ["mailto:alice@corp.example", "did:web:corp.example"])
+            rec = find_pin_by_locator(["did:web:corp.example"])
+            self.assertIsNotNone(rec)
+            self.assertEqual(rec.did, GOLDEN_DID)
+            self.assertIsNone(find_pin_by_locator(["mailto:nobody@else.example"]))
+
+
+class TestTofuLocatorSwap(unittest.TestCase):
+    """A pinned locator serving a different did:key is a TOFU break, not a pass."""
+
+    def _doc_for(self, did_key, locator):
+        pub = bytes(did_key.verify_key)
+        return {
+            "id": "did:web:corp.example",
+            "alsoKnownAs": [locator],
+            "verificationMethod": [
+                {
+                    "type": "Ed25519VerificationKey2020",
+                    "publicKeyMultibase": "z" + _b58_encode(b"\xed\x01" + pub),
+                }
+            ],
+        }
+
+    def test_check_keys_match_pin_blocks_swapped_did(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        pin_file = Path(tmp.name) / "pins.jsonl"
+        locator = "mailto:alice@corp.example"
+        rogue_did = did_key_from_signing_key(SigningKey.generate())
+        env = {"AGENTS_KNOWN_DIDS_FILE": str(pin_file)}
+        with patch.dict(os.environ, env):
+            pin_locator(GOLDEN_DID, [locator])
+            match, pinned = check_keys_match_pin([rogue_did], None, locators=[locator])
+            self.assertFalse(match)
+            self.assertEqual(pinned, GOLDEN_DID)
+            # the pinned did itself still matches
+            match, pinned = check_keys_match_pin([GOLDEN_DID], None, locators=[locator])
+            self.assertTrue(match)
+            self.assertEqual(pinned, GOLDEN_DID)
+
+    def test_check_keys_match_pin_unpinned_locator_passes(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        pin_file = Path(tmp.name) / "pins.jsonl"
+        with patch.dict(os.environ, {"AGENTS_KNOWN_DIDS_FILE": str(pin_file)}):
+            match, pinned = check_keys_match_pin(
+                [GOLDEN_DID], None, locators=["mailto:nobody@else.example"]
+            )
+        self.assertTrue(match)
+        self.assertIsNone(pinned)
+
+    def test_check_keys_match_pin_locator_conflict_beats_did_pin(self):
+        """corp.example compromised: serves did M under a locator pinned to did A."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        pin_file = Path(tmp.name) / "pins.jsonl"
+        did_m = did_key_from_signing_key(SigningKey.generate())
+        env = {"AGENTS_KNOWN_DIDS_FILE": str(pin_file)}
+        with patch.dict(os.environ, env):
+            pin_locator(GOLDEN_DID, ["mailto:alice@corp.example"])
+            pin_locator(did_m, ["mailto:mallory@evil.example"])
+            match, pinned = check_keys_match_pin(
+                [did_m], did_m, locators=["mailto:Alice@corp.example"]
+            )
+        self.assertFalse(match)
+        self.assertEqual(pinned, GOLDEN_DID)
+
+    def test_check_keys_match_pin_explicit_pinned_did(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        pin_file = Path(tmp.name) / "pins.jsonl"
+        did_m = did_key_from_signing_key(SigningKey.generate())
+        with patch.dict(os.environ, {"AGENTS_KNOWN_DIDS_FILE": str(pin_file)}):
+            match, pinned = check_keys_match_pin([did_m], did_m, pinned_did=GOLDEN_DID)
+            self.assertFalse(match)
+            self.assertEqual(pinned, GOLDEN_DID)
+            match, _ = check_keys_match_pin([did_m], did_m, pinned_did=did_m)
+            self.assertTrue(match)
+
+    def test_find_pins_by_locators_all_records_case_insensitive(self):
+        records = [
+            PinRecord(did="did:key:zA", locators=["mailto:alice@corp.example"]),
+            PinRecord(did="did:key:zB", locators=["mailto:mallory@evil.example"]),
+        ]
+        hits = find_pins_by_locators(
+            [" MAILTO:ALICE@CORP.EXAMPLE ", "mailto:Mallory@EVIL.example"], records
+        )
+        self.assertEqual([r.did for r in hits], ["did:key:zA", "did:key:zB"])
+        self.assertEqual(find_pins_by_locators(["nobody@x.example"], records), [])
+
+    def test_resolve_locator_reports_mismatch(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        pin_file = Path(tmp.name) / "pins.jsonl"
+        locator = "mailto:alice@corp.example"
+        rogue_key = SigningKey.generate()
+        doc = self._doc_for(rogue_key, locator)
+        with patch.dict(os.environ, {"AGENTS_KNOWN_DIDS_FILE": str(pin_file)}):
+            pin_locator(GOLDEN_DID, [locator])
+            with patch("agents_keys.resolve._fetch_json", return_value=doc):
+                result = resolve_locator(locator)
+        self.assertFalse(result.match)
+        self.assertTrue(result.pinned)
+
+    def test_resolve_cli_exit_3_on_swapped_did(self):
+        from agents_keys.cli import main
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        pin_file = Path(tmp.name) / "pins.jsonl"
+        locator = "mailto:alice@corp.example"
+        rogue_key = SigningKey.generate()
+        doc = self._doc_for(rogue_key, locator)
+        err = io.StringIO()
+        with patch.dict(os.environ, {"AGENTS_KNOWN_DIDS_FILE": str(pin_file)}):
+            pin_locator(GOLDEN_DID, [locator])
+            with patch("agents_keys.resolve._fetch_json", return_value=doc):
+                with redirect_stderr(err):
+                    rc = main(["resolve", locator])
+        self.assertEqual(rc, 3)
+
+
+class TestSignVerifyEncoding(unittest.TestCase):
+    def test_sign_b64url_roundtrip(self):
+        key = _golden_key()
+        sig = sign_b64url(key, GOLDEN_MESSAGE.encode("utf-8"))
+        self.assertEqual(len(sig), 86)
+        self.assertNotIn("=", sig)
+        verify_did(GOLDEN_DID, GOLDEN_MESSAGE.encode("utf-8"), sig)
+
+    def test_verify_did_rejects_non_base64url(self):
+        msg = b"hello"
+        bad_sigs = [
+            "",
+            "!!!",
+            "a" * 85,
+            "a" * 87,
+            "a" * 84 + "==",  # padding is not accepted
+            GOLDEN_SIG,       # 128-char hex is not base64url
+            "A" * 85 + "+",
+            "A" * 85 + "/",
+        ]
+        for bad in bad_sigs:
+            with self.assertRaises(ValueError, msg=f"sig accepted: {bad!r}"):
+                verify_did(GOLDEN_DID, msg, bad)
+
+    def test_verify_did_rejects_wrong_signature(self):
+        key = _golden_key()
+        sig = sign_b64url(key, b"other message")
+        with self.assertRaises(ValueError):
+            verify_did(GOLDEN_DID, GOLDEN_MESSAGE.encode("utf-8"), sig)
+
+
+class TestFrames(unittest.TestCase):
+    def test_canonical_bytes_domain_tag_and_sig_strip(self):
+        payload = {
+            "kind": "ws:announce",
+            "did": "did:key:zX",
+            "sig": "deadbeef",
+            "signature": "cafe",
+            "b": 2,
+            "a": 1,
+        }
+        raw = canonical_frame_bytes("ws:announce", payload)
+        self.assertTrue(raw.startswith(b"ws-frame/1\nws:announce\n"))
+        body = raw.split(b"\n", 2)[2]
+        self.assertNotIn(b"sig", body)
+        self.assertEqual(body, b'{"a":1,"b":2,"did":"did:key:zX","kind":"ws:announce"}')
+
+    def test_canonical_bytes_rejects_nan(self):
+        with self.assertRaises(ValueError):
+            canonical_frame_bytes("ws:announce", {"x": float("nan")})
+
+    def test_sign_verify_frame_roundtrip_and_tamper(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        with patch.dict(os.environ, {"AGENTS_KEYS_DIR": tmp.name}):
+            did = mint("frame-bot")["did"]
+            frame = sign_frame("frame-bot", "ws:announce", {"endpoint": "wss://x.example", "seq": 1})
+            self.assertEqual(frame["did"], did)
+            self.assertEqual(frame["kind"], "ws:announce")
+            self.assertEqual(len(frame["sig"]), 86)
+            verify_frame(did, "ws:announce", frame)
+            # tampered payload fails
+            with self.assertRaises(ValueError):
+                verify_frame(did, "ws:announce", dict(frame, seq=2))
+            # wrong kind fails
+            with self.assertRaises(ValueError):
+                verify_frame(did, "ws:revoke", frame)
+            # wrong did fails
+            with self.assertRaises(ValueError):
+                verify_frame(GOLDEN_DID, "ws:announce", frame)
+            # missing sig fails
+            unsigned = {k: v for k, v in frame.items() if k != "sig"}
+            with self.assertRaises(ValueError):
+                verify_frame(did, "ws:announce", unsigned)
+
+    def test_frame_kind_rejects_crlf_and_empty(self):
+        for bad in ("a\nb", "a\rb", ""):
+            with self.assertRaises(ValueError, msg=repr(bad)):
+                canonical_frame_bytes(bad, {})
+
+    def test_canonical_bytes_rejects_non_dict_payload(self):
+        with self.assertRaises(ValueError):
+            canonical_frame_bytes("ws:announce", "not-a-dict")
+
+    def test_sign_frame_rejects_newline_kind(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        with patch.dict(os.environ, {"AGENTS_KEYS_DIR": tmp.name}):
+            mint("frame-bot")
+            with self.assertRaises(ValueError):
+                sign_frame("frame-bot", "a\nb", {"seq": 1})
+
+    def test_verify_frame_rejects_non_dict(self):
+        for bad in ("not-a-dict", ["did", GOLDEN_DID], None):
+            with self.assertRaises(ValueError, msg=repr(bad)):
+                verify_frame(GOLDEN_DID, "ws:announce", bad)
+
 
 class TestCli(unittest.TestCase):
     def _run(self, *args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
@@ -161,6 +397,124 @@ class TestCli(unittest.TestCase):
         self.assertIn("mint", data["commands"])
         self.assertIn("pin", data["commands"])
         self.assertIn("resolve", data["commands"])
+        self.assertIn("verify", data["commands"])
+        self.assertIn("ensure", data["commands"])
+        for name, spec in data["commands"].items():
+            self.assertIn("side_effects", spec, name)
+
+    def test_help_json_side_effects_enum(self):
+        proc = self._run("--help-json")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        data = json.loads(proc.stdout)
+        for name in ("did", "ssh-pubkey", "sign", "verify", "resolve"):
+            self.assertEqual(
+                data["commands"][name]["side_effects"], "read-only", name
+            )
+        for name in ("mint", "ensure", "import", "pin", "prove"):
+            self.assertEqual(
+                data["commands"][name]["side_effects"], "mutating", name
+            )
+
+    def test_ensure_mints_once_and_prints_did(self):
+        from agents_keys.cli import main
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        with patch.dict(os.environ, {"AGENTS_KEYS_DIR": tmp.name}):
+            out1, err1 = io.StringIO(), io.StringIO()
+            with redirect_stdout(out1), redirect_stderr(err1):
+                rc1 = main(["ensure", "e-bot"])
+            out2, err2 = io.StringIO(), io.StringIO()
+            with redirect_stdout(out2), redirect_stderr(err2):
+                rc2 = main(["ensure", "e-bot"])
+        self.assertEqual(rc1, 0)
+        self.assertEqual(rc2, 0)
+        did = out1.getvalue().strip()
+        self.assertTrue(did.startswith("did:key:z6Mk"))
+        self.assertEqual(out2.getvalue().strip(), did)
+        self.assertIn("wrote", err1.getvalue())
+        self.assertNotIn("wrote", err2.getvalue())
+
+    def test_sign_stdin_b64url_then_verify_stdin(self):
+        from agents_keys.cli import main
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        with patch.dict(os.environ, {"AGENTS_KEYS_DIR": tmp.name}):
+            did = mint("io-bot")["did"]
+            key, _, _ = load("io-bot")
+            payload = '{"frame":"ws:announce","n":1}'
+            out = io.StringIO()
+            with patch("sys.stdin", io.StringIO(payload)):
+                with redirect_stdout(out):
+                    rc = main(["sign", "io-bot", "--stdin", "--b64url"])
+            self.assertEqual(rc, 0)
+            sig = out.getvalue().strip()
+            self.assertEqual(sig, sign_b64url(key, payload.encode("utf-8")))
+            # sign `-` reads stdin the same way
+            out = io.StringIO()
+            with patch("sys.stdin", io.StringIO(payload)):
+                with redirect_stdout(out):
+                    rc = main(["sign", "io-bot", "-", "--b64url"])
+            self.assertEqual(rc, 0)
+            self.assertEqual(out.getvalue().strip(), sig)
+            # verify did --stdin <sig>
+            out = io.StringIO()
+            with patch("sys.stdin", io.StringIO(payload)):
+                with redirect_stdout(out):
+                    rc = main(["verify", did, "--stdin", sig])
+            self.assertEqual(rc, 0)
+            self.assertIn("valid", out.getvalue())
+            # verify did - <sig>
+            out = io.StringIO()
+            with patch("sys.stdin", io.StringIO(payload)):
+                with redirect_stdout(out):
+                    rc = main(["verify", did, "-", sig])
+            self.assertEqual(rc, 0)
+            # tampered message fails
+            err = io.StringIO()
+            with patch("sys.stdin", io.StringIO(payload + "x")):
+                with redirect_stderr(err):
+                    rc = main(["verify", did, "--stdin", sig])
+            self.assertEqual(rc, 1)
+            self.assertIn("invalid", err.getvalue())
+            # non-base64url sig rejected by the CLI
+            err = io.StringIO()
+            with redirect_stderr(err):
+                rc = main(["verify", did, "m", "!!!"])
+            self.assertEqual(rc, 1)
+            self.assertIn("invalid", err.getvalue())
+
+    def test_verify_sig_leading_dash_not_eaten_by_argparse(self):
+        from agents_keys.cli import main
+
+        # '-'-leading base64url sigs must reach verify_did, not argparse.
+        dash_sig = "-" + "A" * 85
+        err = io.StringIO()
+        with redirect_stderr(err):
+            rc = main(["verify", GOLDEN_DID, "m", dash_sig])
+        self.assertEqual(rc, 1)
+        self.assertIn("signature does not verify", err.getvalue())
+
+    def test_verify_message_looking_like_sig_is_not_rescued(self):
+        from agents_keys.cli import main
+
+        # an 86-char message must not be popped as the sig; args stay put
+        err = io.StringIO()
+        with redirect_stderr(err):
+            rc = main(["verify", GOLDEN_DID, "A" * 86, "invalid_sig"])
+        self.assertEqual(rc, 1)
+        self.assertIn("not base64url", err.getvalue())
+
+    def test_verify_dash_leading_short_sig_exits_1(self):
+        from agents_keys.cli import main
+
+        # '-'-leading malformed sig reaches verify_did, not argparse exit 2
+        err = io.StringIO()
+        with redirect_stderr(err):
+            rc = main(["verify", GOLDEN_DID, "msg", "-" + "A" * 84])
+        self.assertEqual(rc, 1)
+        self.assertIn("not base64url", err.getvalue())
 
     def test_mint_did_sign_roundtrip(self):
         tmp = tempfile.TemporaryDirectory()

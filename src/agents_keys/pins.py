@@ -90,6 +90,23 @@ def find_pin(did: str, records: list[PinRecord] | None = None) -> PinRecord | No
     return None
 
 
+def find_pins_by_locators(
+    locators: list[str], records: list[PinRecord] | None = None
+) -> list[PinRecord]:
+    """Every record whose locators match, case-insensitive (strip + lower)."""
+    records = records if records is not None else load_pins()
+    wanted = {loc.strip().lower() for loc in locators}
+    return [
+        r for r in records
+        if wanted & {loc.strip().lower() for loc in r.locators}
+    ]
+
+
+def find_pin_by_locator(locators: list[str], records: list[PinRecord] | None = None) -> PinRecord | None:
+    hits = find_pins_by_locators(locators, records)
+    return hits[0] if hits else None
+
+
 def upsert_pin(did: str, locators: list[str], *, tofu: bool = True) -> PinRecord:
     records = load_pins()
     existing = find_pin(did, records)
@@ -111,9 +128,9 @@ def upsert_pin(did: str, locators: list[str], *, tofu: bool = True) -> PinRecord
 
 
 def assert_can_pin(did: str, locators: list[str]) -> None:
-    loc_set = set(locators)
+    wanted = {loc.strip().lower() for loc in locators}
     for rec in load_pins():
-        overlap = set(rec.locators) & loc_set
+        overlap = {loc for loc in rec.locators if loc.strip().lower() in wanted}
         if overlap and rec.did != did:
             joined = ", ".join(sorted(overlap))
             raise PinMismatchError(
@@ -126,14 +143,26 @@ def pin_locator(did: str, locators: list[str]) -> PinRecord:
     return upsert_pin(did, locators, tofu=True)
 
 
-def check_keys_match_pin(keys: list[str], pinned_did: str | None) -> tuple[bool, str | None]:
-    """Return (match, pinned_did). If no pin, match is True and pinned_did is None."""
-    if not keys:
+def check_keys_match_pin(
+    keys: list[str],
+    primary: str | None = None,
+    *,
+    pinned_did: str | None = None,
+    locators: list[str] | tuple[str, ...] = (),
+) -> tuple[bool, str | None]:
+    """Return (match, pinned_did). If no pin, match is True and pinned_did is None.
+    Locator pins win: every record matching a served locator is checked before
+    the did pin, and any pinned did that differs from the served primary is a
+    TOFU break (match=False, expected pinned did returned)."""
+    primary = primary if primary is not None else (keys[0] if keys else None)
+    if pinned_did is not None and pinned_did != primary:
         return False, pinned_did
-    primary = keys[0]
+    if primary is None:
+        return False, pinned_did
+    for rec in find_pins_by_locators(locators):
+        if rec.did != primary:
+            return False, rec.did
     rec = find_pin(primary)
     if rec is None:
         return True, None
-    if primary != rec.did:
-        return False, rec.did
     return True, rec.did

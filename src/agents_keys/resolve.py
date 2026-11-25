@@ -8,7 +8,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 
-from .pins import PinMismatchError, check_keys_match_pin, find_pin, pin_locator
+from .pins import PinMismatchError, check_keys_match_pin, find_pin, find_pin_by_locator, pin_locator
 from .store import _b58_decode, _b58_encode
 
 
@@ -167,8 +167,8 @@ def resolve_locator(locator: str, *, pin: bool = False) -> ResolveResult:
         pinned = True
         match = True
     else:
-        pinned = find_pin(primary) is not None
-        match, _ = check_keys_match_pin(keys, primary)
+        pinned = find_pin(primary) is not None or find_pin_by_locator(locators) is not None
+        match, _ = check_keys_match_pin(keys, primary, locators=locators)
 
     return ResolveResult(
         did=primary,
